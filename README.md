@@ -1,14 +1,7 @@
-# Trabajo Fin de Grado: Estructuración y Análisis de Información Publicada en Prensa Web mediante ChatGPT
-
-Universidad [UCLM]  
+# Trabajo Fin de Grado: Estructuración y Análisis de Información Publicada en Prensa Web mediante ChatGPT  
 
 Este repositorio contiene el código realizado para dicho TFG
 
-## Alumno
+**Alumno**: Antonio Marín Martínez  
 
-**Antonio Marín Martínez**  
-
-
-## Tutor
-
-**Luis de la Ossa Jimenez**  
+**Tutor**: Luis de la Ossa Jimenez  
