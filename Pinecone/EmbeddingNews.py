@@ -1,13 +1,10 @@
 from pymongo import MongoClient
 from openai import Client
 from pinecone.grpc import PineconeGRPC as Pinecone
+from pinecone import PineconeException
 import os
 import warnings
 from cryptography.utils import CryptographyDeprecationWarning
-
-#TODO: hacer comprobaciones con el id de la noticia para ver si esta en pinecone primero antes de hacer el embedding
-#TODO: si ocurre el error terminar la ejecuión y mostrar el id de la noticia con la que ocurrio el error
-#TODO: de momento solo estoy probando con una noticia, una vez terminada la prueba hacerlo con el resto de noticas
 
 class Program():
     def __init__(self):
@@ -36,13 +33,16 @@ class Program():
     def run(self):
         db = self.mongoClient['All-PRO']
         collection = db['PRO-Noticias']
-        documents = collection.find_one()
-        self.embeddingNews(documents)
-        # for document in documents:
-        #     self.embeddingNew(document)
+        documents = list(collection.find())
+        total_docs = len(documents)
+        for i,document in enumerate(documents):
+            print(f'Processing document {i + 1}/{total_docs}')
+            if self.checkArticleInPinecone(document['_id']):
+                print('The ID:', document['_id'], ' is already in Pinecone.')
+            else:   
+                self.embeddingNews(document)
     
     def embeddingNews(self, document):
-        # print(document['_id'])
         redaction_date = document.get('fecha_redaccion', '')
         active_subject = document.get('sujeto_activo', '')
         object_part = document.get('parte_objeto', '')
@@ -53,14 +53,12 @@ class Program():
         statements = document.get('declaraciones', [])
 
         processed_text = f"{redaction_date} {active_subject} {object_part} {main_topic} {tone} {summary} {' '.join(keywords)} {' '.join([dec['declaracion'] for dec in statements if 'declaracion' in dec])}"
-        print(processed_text)
         articleEmbedding = self.getEmbedding(document['_id'], processed_text)
 
         if articleEmbedding:
             self.pineconeInsert(document['_id'],articleEmbedding)
         else:
-            print(f"Failed to generate embedding for the processed article")
-            #TODO:¿sys.exit()?
+            print('Failed to generate embedding for the processed article', document['_id'])
             
     
     def getEmbedding(self, id, text):
@@ -69,13 +67,21 @@ class Program():
             embedding = response.data[0].embedding
             return embedding
         except Exception as e:
-            print(f"Error in article {id} get_embedding: {e}")
+            print(f"Error in article {id} getEmbedding: {e}")
             return None
         
     def pineconeInsert(self, id, embedding):
-        self.index.upsert([(str(id), embedding)])
-        print('Added one article embedded to pinecone:')
-        print(self.index.describe_index_stats(), '\t')
+        try:
+            self.index.upsert([(str(id), embedding)])
+            print(f'Added one article ({id}) embedded to pinecone.')
+        except PineconeException as e:
+            print(f"Error: {str(e)}")
+
+
+    def checkArticleInPinecone(self, id):
+        response = self.index.fetch(ids=[str(id)])
+        # In response, if vectors is null then returns False because there is no data wwith that ID
+        return bool(response['vectors'])
 
 
 if __name__ == '__main__':
