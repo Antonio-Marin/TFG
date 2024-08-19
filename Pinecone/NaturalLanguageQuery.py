@@ -3,14 +3,11 @@ from bson.objectid import ObjectId
 from openai import Client
 from pinecone.grpc import PineconeGRPC as Pinecone
 import os
+import gradio as gr
 import warnings
 from cryptography.utils import CryptographyDeprecationWarning
 
 class Program():
-
-    #TODO: hacer nuevo prompt para sacar conclusiones de request (query lenguaje natural + noticias obtenidas)
-    #TODO: usar GPT4o-mini
-    #TODO: implementar gradio
 
     def __init__(self):
         # Ignore warning
@@ -32,16 +29,26 @@ class Program():
         index_name = 'news'
         self.index = pc.Index(index_name)
 
-        # EXECUTION
-        self.run()
+        #GRADIO
+        interface = gr.Interface(
+        fn=self.run, 
+        inputs=gr.Textbox(label='Consulta', placeholder="Introduce tu consulta aquí..."), 
+        outputs=gr.Textbox(label="Respuesta"), 
+        title="Consultas COVID-19", 
+        description="Introduce una consulta y se te proporcionara una respuesta en base a la información recopilada.",
+        allow_flagging="manual",
+        flagging_options=[("Marcar como errónea","Incorrecto")]
+        )
 
-    def run(self):
-        print('Introduce your query in natural language:')
-        query = input()
+        # EXECUTION
+        interface.launch(share=True)
+
+    def run(self, query):
         results = self.searchInPinecone(query)
         articlesData = self.getArticles(results)
         request = self.processArticles(articlesData, query)
-        print(request)
+        response = self.conclussion(request)
+        return response
 
     def searchInPinecone(self, query, top_k=5):
         queryEmbedding = self.getEmbedding(query)
@@ -71,7 +78,7 @@ class Program():
         return articlesData
     
     def processArticles(self, articlesData, query):
-        request = query
+        request = f'Consulta: {query}'
         for i,articleData in enumerate(articlesData):
             redaction_date = articleData.get('fecha_redaccion', '')
             active_subject = articleData.get('sujeto_activo', '')
@@ -84,6 +91,22 @@ class Program():
 
             request = f"{request}\n Noticia {i+1}: {redaction_date} {active_subject} {object_part} {main_topic} {tone} {summary} {' '.join(keywords)} {' '.join([dec['declaracion'] for dec in statements if 'declaracion' in dec])}"
         return request
+    
+    def conclussion(self, requestData):
+        response = self.openAiClient.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": """
+            A continuación, te proporcionaré una consulta y una serie de noticias relacionadas. Por favor, analiza estas noticias y responde a la consulta anterior de manera concisa y clara, destacando los puntos más relevantes.
+            """},
+            {"role": "user", "content": requestData}
+        ],
+        temperature=0.5,    # Reduces randomness
+        top_p=0.9           # Limit generation to the most likely tokens
+        )
+
+        response = response.choices[0].message.content
+        return response
 
 if __name__ == '__main__':
-    Program()  
+    Program()
