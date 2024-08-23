@@ -3,6 +3,7 @@ from bson.objectid import ObjectId
 from openai import Client
 from pinecone.grpc import PineconeGRPC as Pinecone
 import os
+import re
 import gradio as gr
 import warnings
 from cryptography.utils import CryptographyDeprecationWarning
@@ -33,11 +34,10 @@ class Program():
         interface = gr.Interface(
         fn=self.run, 
         inputs=gr.Textbox(label='Consulta', placeholder="Introduce tu consulta aquí..."), 
-        outputs=gr.Textbox(label="Respuesta"), 
+        outputs=[gr.Textbox(label="Respuesta"), gr.Markdown(label="Noticias")],
         title="Consultas COVID-19", 
         description="Introduce una consulta y se te proporcionara una respuesta en base a la información recopilada.",
-        allow_flagging="manual",
-        flagging_options=[("Marcar como errónea","Incorrecto")]
+        allow_flagging="never"
         )
 
         # EXECUTION
@@ -47,8 +47,9 @@ class Program():
         results = self.searchInPinecone(query)
         articlesData = self.getArticles(results)
         request = self.processArticles(articlesData, query)
+        outputArticles = self.formatText(request)
         response = self.conclussion(request)
-        return response
+        return response, outputArticles
 
     def searchInPinecone(self, query, top_k=5):
         queryEmbedding = self.getEmbedding(query)
@@ -78,18 +79,16 @@ class Program():
         return articlesData
     
     def processArticles(self, articlesData, query):
-        request = f'Consulta: {query}'
+        request = f'Consulta: {query}\n'
         for i,articleData in enumerate(articlesData):
-            redaction_date = articleData.get('fecha_redaccion', '')
-            active_subject = articleData.get('sujeto_activo', '')
-            object_part = articleData.get('parte_objeto', '')
-            main_topic = articleData.get('tema_principal', '')
-            tone = articleData.get('tono', '')
-            summary = articleData.get('resumen', '')
-            keywords = articleData.get('palabras_clave', [])
-            statements = articleData.get('declaraciones', [])
+            request = f"""{request}\nNoticia {i+1}: \nFecha de Redacción: {articleData.get('fecha_redaccion', '')} \nSujeto Activo: {articleData.get('sujeto_activo', '')} \nParte Objeto: {articleData.get('parte_objeto', '')} \nTema Principal: {articleData.get('tema_principal', '')} \nTono: {articleData.get('tono', '')} \nResumen: {articleData.get('resumen', '')} \nPalabras Clave: {', '.join(articleData.get('palabras_clave', []))} \nDeclaraciones:"""
+            if articleData.get('declaraciones', []):
+                for declaration in articleData.get('declaraciones', []):
+                    request += f"\n\t Entidad: {declaration.get('entidad', '')}, Declaración: {declaration.get('declaracion', '')}"
+                request += f"\n"
+            else:
+                request += f" no hay declaraciones.\n"
 
-            request = f"{request}\n Noticia {i+1}: {redaction_date} {active_subject} {object_part} {main_topic} {tone} {summary} {' '.join(keywords)} {' '.join([dec['declaracion'] for dec in statements if 'declaracion' in dec])}"
         return request
     
     def conclussion(self, requestData):
@@ -107,6 +106,22 @@ class Program():
 
         response = response.choices[0].message.content
         return response
+    
+    def formatText(self, text):
+        text = re.sub(r"(Consulta:)", r" ## \1 ", text)
+        text = re.sub(r"(Noticia \d+:)", r" ### \1 ", text)
+        text = re.sub(r"(Fecha de Redacción:)", r" - **\1** ", text)
+        text = re.sub(r"(Sujeto Activo:)", r" - **\1** ", text)
+        text = re.sub(r"(Parte Objeto:)", r" - **\1** ", text)
+        text = re.sub(r"(Tema Principal:)", r" - **\1** ", text)
+        text = re.sub(r"(Tono:)", r" - **\1** ", text)
+        text = re.sub(r"(Resumen:)", r" - **\1** ", text)
+        text = re.sub(r"(Palabras Clave:)", r" - **\1** ", text)
+        text = re.sub(r"(Declaraciones:)", r" - **\1** ", text)
+        text = re.sub(r"(Entidad:)", r"\n   - **\1** ", text)
+        text = re.sub(r"(Declaración:)", r" **\1** ", text)
+
+        return text 
 
 if __name__ == '__main__':
     Program()
